@@ -2,7 +2,6 @@
 #include <stdlib.h>
 
 #define N 8
-#define BLOCK_SIZE 1
 
 __global__ void matMult(const float *A, const float *B, float *C, int n)
 {
@@ -35,9 +34,10 @@ void printMatrix(const char *name, float *M, size_t n)
 
 int main(void)
 {
-	dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
+	size_t blockSize = N;
+	dim3 threadsPerBlock(blockSize, blockSize);
 
-	int nBlocks = ceil(N/BLOCK_SIZE);
+	int nBlocks = ceil(N/blockSize);
 	dim3 blocksPerGrid(nBlocks, nBlocks);
 
 	int device = 0;
