@@ -1,0 +1,11 @@
+ssh -Y 456657@airacuda.fi.muni.cz
+
+nvidia-smi
+
+nvcc -o output_binary input_code.cu
+nvcc -O3 -o framework framework.cu
+
+scp <file> 456657@airacuda.fi.muni.cz:~/
+
+== NVIDIA Visual profiler
+nvvp
