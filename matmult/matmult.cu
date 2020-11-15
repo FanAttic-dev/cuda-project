@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 #define N 2048
-#define THREADS_PER_BLOCK 1024
+#define THREADS_PER_BLOCK 16*16
 
 __global__ void matMult(const float *A, const float *B, float *C, int n)
 {
@@ -49,7 +49,7 @@ int main(void)
 	size_t blockSize = sqrt(THREADS_PER_BLOCK);
 	dim3 threadsPerBlock(blockSize, blockSize);
 
-	int nBlocks = ceil(N/blockSize);
+	size_t nBlocks = 2;//ceil(N/blockSize);
 	dim3 blocksPerGrid(nBlocks, nBlocks);
 
 	int device = 0;
@@ -110,7 +110,8 @@ int main(void)
 #endif
 
 	printf("Calculation status: %s\n", hC[0] != 0 ? "success" : "failed");
-	printf("Block size: %lu x %lu (%d threads per block)\n", blockSize, blockSize, THREADS_PER_BLOCK);
+	printf("Threads per block: %lu x %lu = %d\n", blockSize, blockSize, THREADS_PER_BLOCK);
+	printf("Blocks per grid: %lu x %lu = %lu\n", nBlocks, nBlocks, nBlocks*nBlocks);
 	printf("Elapsed time: %f ms\n", milliseconds);
 	printf("GPU performance: %f megaevals/s\n", float(N*N)/milliseconds/1000.f);
 
