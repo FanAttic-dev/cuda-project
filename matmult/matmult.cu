@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define N 8
+#define N 2048
+#define THREADS_PER_BLOCK 1024
 
 __global__ void matMult(const float *A, const float *B, float *C, int n)
 {
@@ -32,9 +33,20 @@ void printMatrix(const char *name, float *M, size_t n)
 	}
 }
 
+void fillMatrices(float *A, float *B)
+{	
+	int i, j;
+	for (i = 0; i < N; ++i) {
+		for (j = 0; j < N; ++j) {
+			A[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
+			B[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
+		}
+	}
+}
+
 int main(void)
 {
-	size_t blockSize = N;
+	size_t blockSize = sqrt(THREADS_PER_BLOCK);
 	dim3 threadsPerBlock(blockSize, blockSize);
 
 	int nBlocks = ceil(N/blockSize);
@@ -49,6 +61,12 @@ int main(void)
 	cudaDeviceProp deviceProp;
 	cudaGetDeviceProperties(&deviceProp, device);
 	printf("Using device %d: \"%s\"\n", device, deviceProp.name);	
+
+	// setup timers
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	float milliseconds = 0;
 
 	size_t matrixSizeBytes = N * N * sizeof(float);
 	int status = EXIT_FAILURE;
@@ -66,30 +84,35 @@ int main(void)
 		fprintf(stderr, "Could not allocate memory!\n");
 		goto cleanup;
 	}
-
-	// fill the matrix
-	int i, j;
-	for (i = 0; i < N; ++i) {
-		for (j = 0; j < N; ++j) {
-			hA[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
-			hB[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
-		}
-	}
+	
+	fillMatrices(hA, hB);
 
 	cudaMemcpy(dA, hA, matrixSizeBytes, cudaMemcpyHostToDevice);
 	cudaMemcpy(dB, hB, matrixSizeBytes, cudaMemcpyHostToDevice);
 
+	cudaEventRecord(start);
 	matMult<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
-	cudaDeviceSynchronize();
+	cudaEventRecord(stop);
+//	cudaDeviceSynchronize();
 
 	cudaMemcpy(hC, dC, matrixSizeBytes, cudaMemcpyDeviceToHost);
-	cudaDeviceSynchronize();
+//	cudaDeviceSynchronize();
 
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&milliseconds, start, stop);
+
+#if 0
 	printMatrix("hA", hA, N);
 	puts("+");
 	printMatrix("hB", hB, N);
 	puts("=");
 	printMatrix("hC", hC, N);
+#endif
+
+	printf("Calculation status: %s\n", hC[0] != 0 ? "success" : "failed");
+	printf("Block size: %lu x %lu (%d threads per block)\n", blockSize, blockSize, THREADS_PER_BLOCK);
+	printf("Elapsed time: %f ms\n", milliseconds);
+	printf("GPU performance: %f megaevals/s\n", float(N*N)/milliseconds/1000.f);
 
 	status = EXIT_SUCCESS;
 
