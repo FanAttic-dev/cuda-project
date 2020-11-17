@@ -2,9 +2,33 @@
 #include <stdlib.h>
 
 #define N 2048
-#define THREADS_PER_BLOCK 16*16
+#define TILE_SIZE 16
 
-__global__ void matMult(const float *A, const float *B, float *C, int n)
+__global__ void matMult_tiled(const float *A, const float *B, float *C, int n)
+{
+	int bx = blockIdx.x;
+	int by = blockIdx.y;
+	int tx = threadIdx.x;
+	int ty = threadIdx.y;
+	__shared__ float As[TILE_SIZE][TILE_SIZE];
+	__shared__ float Bs[TILE_SIZE][TILE_SIZE];
+
+	float Csub = 0.f;
+	for (int b = 0; b < n/TILE_SIZE; b++) {
+		As[ty][tx] = A[(by * TILE_SIZE + ty) * n + (b * TILE_SIZE + tx)];
+		Bs[ty][tx] = B[(b * TILE_SIZE + ty) * n + (bx * TILE_SIZE + tx)];
+		__syncthreads();
+
+		for (int k = 0; k < TILE_SIZE; k++) {
+			Csub += As[ty][k] * Bs[k][tx];
+		}
+		__syncthreads();
+	}
+
+	C[(by * TILE_SIZE + ty ) * n + (bx * TILE_SIZE + tx)] = Csub;
+}
+
+__global__ void matMult_naive(const float *A, const float *B, float *C, int n)
 {
 	int col = blockIdx.x * blockDim.x + threadIdx.x;
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -33,20 +57,21 @@ void printMatrix(const char *name, float *M, size_t n)
 	}
 }
 
-void fillMatrices(float *A, float *B)
+void fillMatrices(float *A, float *B, float *C)
 {	
 	int i, j;
 	for (i = 0; i < N; ++i) {
 		for (j = 0; j < N; ++j) {
 			A[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
 			B[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
+			C[i * N + j] = 0.f;
 		}
 	}
 }
 
 int main(void)
 {
-	size_t blockSize = sqrt(THREADS_PER_BLOCK);
+	size_t blockSize = TILE_SIZE;
 	dim3 threadsPerBlock(blockSize, blockSize);
 
 	size_t nBlocks = 2;//ceil(N/blockSize);
@@ -85,13 +110,18 @@ int main(void)
 		goto cleanup;
 	}
 	
-	fillMatrices(hA, hB);
+	fillMatrices(hA, hB, hC);
 
 	cudaMemcpy(dA, hA, matrixSizeBytes, cudaMemcpyHostToDevice);
 	cudaMemcpy(dB, hB, matrixSizeBytes, cudaMemcpyHostToDevice);
+	cudaMemcpy(dC, hC, matrixSizeBytes, cudaMemcpyHostToDevice);
 
 	cudaEventRecord(start);
-	matMult<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
+#ifdef NAIVE	
+	matMult_naive<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
+#else
+	matMult_tiled<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
+#endif
 	cudaEventRecord(stop);
 //	cudaDeviceSynchronize();
 
@@ -109,8 +139,13 @@ int main(void)
 	printMatrix("hC", hC, N);
 #endif
 
+#ifdef NAIVE
+	printf("Naive version\n");	
+#else
+	printf("Tiled version\n");
+#endif
 	printf("Calculation status: %s\n", hC[0] != 0 ? "success" : "failed");
-	printf("Threads per block: %lu x %lu = %d\n", blockSize, blockSize, THREADS_PER_BLOCK);
+	printf("Threads per block: %lu x %lu = %lu\n", blockSize, blockSize, blockSize*blockSize);
 	printf("Blocks per grid: %lu x %lu = %lu\n", nBlocks, nBlocks, nBlocks*nBlocks);
 	printf("Elapsed time: %f ms\n", milliseconds);
 	printf("GPU performance: %f megaevals/s\n", float(N*N)/milliseconds/1000.f);

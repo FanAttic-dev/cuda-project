@@ -1,12 +1,17 @@
 TARGET = matmult
+FLAGS = -O3
 
 all: $(TARGET)
 
-$(TARGET): $(TARGET:=.o)
-	nvcc -O3 -o $@ $< --run
+tiled: $(TARGET)
+	./$<
 
-$(TARGET:=.o): $(TARGET:=.cu)
-	nvcc -O3 -o $@ $< -c
+naive: FLAGS += -D "NAIVE"
+naive: $(TARGET)
+	./$<
+
+$(TARGET): .FORCE
+	nvcc $(FLAGS) -o $@ $(TARGET:=.cu)
 
 clean:
 	-$(RM) *.o
@@ -14,4 +19,6 @@ clean:
 distclean: clean
 	-$(RM) $(TARGET)
 
-.PHONY: all clean distclean
+.PHONY: .FORCE all tiled naive clean distclean
+
+.FORCE:
