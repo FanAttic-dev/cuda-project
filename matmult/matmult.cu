@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define N 2048
+#define N 8192
 #define TILE_SIZE 16
+#define GRID_SIZE 4
 
 __global__ void matMult_tiled(const float *A, const float *B, float *C, int n)
 {
@@ -57,14 +58,12 @@ void printMatrix(const char *name, float *M, size_t n)
 	}
 }
 
-void fillMatrices(float *A, float *B, float *C)
+void fillMatrices(float *A, float *B)
 {	
-	int i, j;
-	for (i = 0; i < N; ++i) {
-		for (j = 0; j < N; ++j) {
+	for (int i = 0; i < N; ++i) {
+		for (int j = 0; j < N; ++j) {
 			A[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
 			B[i * N + j] = 10.f * (float) rand() / (float) RAND_MAX;
-			C[i * N + j] = 0.f;
 		}
 	}
 }
@@ -73,8 +72,10 @@ int main(void)
 {
 	size_t blockSize = TILE_SIZE;
 	dim3 threadsPerBlock(blockSize, blockSize);
+	//dim3 threadsPerBlock(1, 128);
 
-	size_t nBlocks = 2;//ceil(N/blockSize);
+	size_t nBlocks = GRID_SIZE;
+	//size_t nBlocks = ceil(N/blockSize/16/2/2);
 	dim3 blocksPerGrid(nBlocks, nBlocks);
 
 	int device = 0;
@@ -110,7 +111,7 @@ int main(void)
 		goto cleanup;
 	}
 	
-	fillMatrices(hA, hB, hC);
+	fillMatrices(hA, hB);
 
 	cudaMemcpy(dA, hA, matrixSizeBytes, cudaMemcpyHostToDevice);
 	cudaMemcpy(dB, hB, matrixSizeBytes, cudaMemcpyHostToDevice);
@@ -123,10 +124,8 @@ int main(void)
 	matMult_tiled<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
 #endif
 	cudaEventRecord(stop);
-//	cudaDeviceSynchronize();
 
 	cudaMemcpy(hC, dC, matrixSizeBytes, cudaMemcpyDeviceToHost);
-//	cudaDeviceSynchronize();
 
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&milliseconds, start, stop);
@@ -144,6 +143,7 @@ int main(void)
 #else
 	printf("Tiled version\n");
 #endif
+	printf("N = %d\n", N);
 	printf("Calculation status: %s\n", hC[0] != 0 ? "success" : "failed");
 	printf("Threads per block: %lu x %lu = %lu\n", blockSize, blockSize, blockSize*blockSize);
 	printf("Blocks per grid: %lu x %lu = %lu\n", nBlocks, nBlocks, nBlocks*nBlocks);

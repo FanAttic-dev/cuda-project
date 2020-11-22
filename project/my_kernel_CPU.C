@@ -9,19 +9,18 @@ void solveCPU(const int* const contacts, int* const city, int* const infections,
 		for (int i = 0; i < n; ++i) {
 			for (int j = 0; j < n; ++j) {
 				int house_in = in[i * n + j];
-				int *house_out = out[i * n + j];
+				int *house_out = &out[i * n + j];
 
 				if (house_in > 0) {
 					// infected
-					house_in--;
-					*house_out = house_in == 0 ? -30 : house_in;
+					*house_out = --house_in == 0 ? -30 : house_in;
 				} else if (house_in < 0) {
 					// recovering, immune
 					*house_out = ++house_in;
 				} else {
 					// healthy
 
-					// check neighbors
+					// check neighbours
 					int inf_neighbours = 0;
 					for (int ii = max(0, i-1); ii <= min(i+1, n-1); ++ii)
 					for (int jj = max(0, j-1); jj <= min(j+1, n-1); ++jj)
@@ -30,7 +29,7 @@ void solveCPU(const int* const contacts, int* const city, int* const infections,
 					// compare to connectivity
 					if (inf_neighbours > contacts[i * n + j]) {
 						*house_out = 10;
-						inf_new++;
+						++inf_new;
 					} else {
 						*house_out = 0;
 					}
