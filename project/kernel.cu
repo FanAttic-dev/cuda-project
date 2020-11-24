@@ -45,7 +45,7 @@ __global__ void make_iteration_single(const int* const contacts, const int* cons
 	infections[iter] = inf_new;
 }
 
-__global__ void make_iteration(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out)
+__global__ void make_iteration(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out, int* const iter_infections)
 {
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -54,6 +54,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 
 	int house_in = in[idx];
 	int house_out = -1;
+	iter_infections[idx] = 0;
 
 	if (house_in > 0) {
 		// infected
@@ -74,23 +75,34 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 		// compare to connectivity
 		if (inf_neighbours > contacts[idx]) {
 			house_out = 10;
-			++infections[iter];
+			iter_infections[idx] = 1;
 		} else {
 			house_out = 0;
 		}
 	}
+	out[idx] = house_out;
+
 	__syncthreads();
 
-	out[idx] = house_out;
+	if (idx == 0) {
+		int sum = 0;
+		for (int ii = 0; ii < n*n; ++ii) {
+			sum += iter_infections[ii];
+		}
+		
+		infections[iter] = sum;
+	}
 }
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
 {
 	int *in = city;
 	int *out;
+	int *iter_infections;
 
-	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed\n");
+	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess
+			|| cudaMalloc((void**)&iter_infections, n*n*sizeof(int)) != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed\n");
 		return;
 	}
 
@@ -98,8 +110,7 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	dim3 blocksPerGrid(n/16, n/16);
 
 	for (int iter = 0; iter < iters; ++iter) {
-		//infections[iter] = 0;
-		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out);
+		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out, iter_infections);
 
 		int *tmp = in;
 		in = out;
@@ -112,4 +123,6 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	} else {
 		cudaFree(out);
 	}
+
+	cudaFree(iter_infections);
 }
