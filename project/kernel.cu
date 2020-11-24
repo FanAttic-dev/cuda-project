@@ -32,7 +32,7 @@ __global__ void make_iteration_single(const int* const contacts, const int* cons
 							++inf_neighbours;
 
 				// compare to connectivity
-				if (inf_neighbours > contacts[i * n + j]) {
+				if (inf_neighbours > contacts[idx]) {
 					*house_out = 10;
 					++inf_new;
 				} else {
@@ -53,14 +53,14 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 	int idx = i * n + j;
 
 	int house_in = in[idx];
-	int *house_out = &out[idx];
+	int house_out = -1;
 
 	if (house_in > 0) {
 		// infected
-		*house_out = --house_in == 0 ? -30 : house_in;
+		house_out = --house_in == 0 ? -30 : house_in;
 	} else if (house_in < 0) {
 		// recovering, immune
-		*house_out = ++house_in;
+		house_out = ++house_in;
 	} else {
 		// healthy
 
@@ -72,14 +72,16 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 					++inf_neighbours;
 
 		// compare to connectivity
-		if (inf_neighbours > contacts[i * n + j]) {
-			*house_out = 10;
+		if (inf_neighbours > contacts[idx]) {
+			house_out = 10;
 			++infections[iter];
 		} else {
-			*house_out = 0;
+			house_out = 0;
 		}
 	}
 	__syncthreads();
+
+	out[idx] = house_out;
 }
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
@@ -93,11 +95,11 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	}
 
 	dim3 threadsPerBlock(16, 16);
-	dim3 blocksPerGrid(1, 1);
+	dim3 blocksPerGrid(n/16, n/16);
 
 	for (int iter = 0; iter < iters; ++iter) {
 		//infections[iter] = 0;
-		make_iteration_single<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out);
+		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out);
 
 		int *tmp = in;
 		in = out;
