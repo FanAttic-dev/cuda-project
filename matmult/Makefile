@@ -1,12 +1,16 @@
 TARGET = matmult
-FLAGS = -O3
+FLAGS = -O3 -lineinfo
 
 all: $(TARGET)
 
+large_blocks: FLAGS += -D "LARGE_BLOCKS"
+large_blocks: $(TARGET)
+	./$<
+
+tiled: FLAGS += -D "TILED"
 tiled: $(TARGET)
 	./$<
 
-naive: FLAGS += -D "NAIVE"
 naive: $(TARGET)
 	./$<
 
@@ -19,6 +23,6 @@ clean:
 distclean: clean
 	-$(RM) $(TARGET)
 
-.PHONY: .FORCE all tiled naive clean distclean
+.PHONY: all naive .FORCE tiled large_blocks clean distclean
 
 .FORCE:

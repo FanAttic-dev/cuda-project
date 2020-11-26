@@ -1,9 +1,41 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define N 8192
-#define TILE_SIZE 16
-#define GRID_SIZE 4
+#define N 2048
+#define TILE_SIZE 32
+#define M 16
+
+__global__ void matMult_largeBlocks(const float *A, const float *B, float *C, int n)
+{	
+	int bx = blockIdx.x;
+	int by = blockIdx.y;
+	int tx = threadIdx.x;
+	int ty = threadIdx.y;
+	
+	__shared__ float As[TILE_SIZE][TILE_SIZE];
+	__shared__ float Bs[TILE_SIZE][TILE_SIZE];
+
+	float Csub1 = 0.f;
+	float Csub2 = 0.f;
+
+	for (int b = 0; b < n/TILE_SIZE; ++b) {
+		As[ty][tx] = A[(by * blockDim.y + ty) * n + (b * TILE_SIZE + tx)];
+		As[ty+M][tx] = A[(by * blockDim.y + ty + M) * n + (b * TILE_SIZE + tx)];
+		Bs[ty][tx] = B[(b * TILE_SIZE + ty) * n + (bx * blockDim.x + tx)];
+		Bs[ty+M][tx] = B[(b * TILE_SIZE + ty + M) * n + (bx * blockDim.x + tx)];
+		__syncthreads();
+
+		#pragma unroll 32
+		for (int k = 0; k < TILE_SIZE; ++k) {
+			Csub1 += As[ty][k] * Bs[k][tx];
+			Csub2 += As[ty+M][k] * Bs[k][tx];
+		}
+		__syncthreads();
+	}
+
+	C[(by * blockDim.y + ty) * n + (bx * blockDim.x + tx)] = Csub1;
+	C[(by * blockDim.y + ty + M) * n + (bx * blockDim.x + tx)] = Csub2;
+}
 
 __global__ void matMult_tiled(const float *A, const float *B, float *C, int n)
 {
@@ -16,8 +48,8 @@ __global__ void matMult_tiled(const float *A, const float *B, float *C, int n)
 
 	float Csub = 0.f;
 	for (int b = 0; b < n/TILE_SIZE; b++) {
-		As[ty][tx] = A[(by * TILE_SIZE + ty) * n + (b * TILE_SIZE + tx)];
-		Bs[ty][tx] = B[(b * TILE_SIZE + ty) * n + (bx * TILE_SIZE + tx)];
+		As[ty][tx] = A[(by * blockDim.y + ty) * n + (b * TILE_SIZE + tx)];
+		Bs[ty][tx] = B[(b * TILE_SIZE + ty) * n + (bx * blockDim.x + tx)];
 		__syncthreads();
 
 		for (int k = 0; k < TILE_SIZE; k++) {
@@ -26,7 +58,7 @@ __global__ void matMult_tiled(const float *A, const float *B, float *C, int n)
 		__syncthreads();
 	}
 
-	C[(by * TILE_SIZE + ty ) * n + (bx * TILE_SIZE + tx)] = Csub;
+	C[(by * blockDim.y + ty) * n + (bx * blockDim.x + tx)] = Csub;
 }
 
 __global__ void matMult_naive(const float *A, const float *B, float *C, int n)
@@ -45,18 +77,18 @@ __global__ void matMult_naive(const float *A, const float *B, float *C, int n)
 	C[row * n + col] = tmp;
 }
 
-void printMatrix(const char *name, float *M, size_t n)
-{
-	printf("%s:\n", name);
-
-	int i, j;
-	for (i = 0; i < n; ++i) {
-		for (j = 0; j < n; ++j) {
-			printf("%8.2f ", M[i * n + j]);
-		}
-		printf("\n");
-	}
-}
+//void printMatrix(const char *name, float *M, int n)
+//{
+//	printf("%s:\n", name);
+//
+//	int i, j;
+//	for (i = 0; i < n; ++i) {
+//		for (j = 0; j < n; ++j) {
+//			printf("%8.2f ", M[i * n + j]);
+//		}
+//		printf("\n");
+//	}
+//}
 
 void fillMatrices(float *A, float *B)
 {	
@@ -70,13 +102,20 @@ void fillMatrices(float *A, float *B)
 
 int main(void)
 {
+
+#if defined LARGE_BLOCKS
+	size_t blockSize = TILE_SIZE;
+	dim3 threadsPerBlock(blockSize, M);
+	dim3 blocksPerGrid(ceil(N/blockSize), ceil(N/blockSize));
+#elif defined TILED
 	size_t blockSize = TILE_SIZE;
 	dim3 threadsPerBlock(blockSize, blockSize);
-	//dim3 threadsPerBlock(1, 128);
+	dim3 blocksPerGrid(ceil(N/blockSize), ceil(N/blockSize));
+#else // NAIVE
+	dim3 threadsPerBlock(16, 16);
+	dim3 blocksPerGrid(ceil(N/16), ceil(N/16));
+#endif
 
-	size_t nBlocks = GRID_SIZE;
-	//size_t nBlocks = ceil(N/blockSize/16/2/2);
-	dim3 blocksPerGrid(nBlocks, nBlocks);
 
 	int device = 0;
 	if (cudaSetDevice(device) != cudaSuccess) {
@@ -118,11 +157,14 @@ int main(void)
 	cudaMemcpy(dC, hC, matrixSizeBytes, cudaMemcpyHostToDevice);
 
 	cudaEventRecord(start);
-#ifdef NAIVE	
-	matMult_naive<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
-#else
+#if defined LARGE_BLOCKS
+	matMult_largeBlocks<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
+#elif defined TILED
 	matMult_tiled<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
+#else
+	matMult_naive<<<blocksPerGrid, threadsPerBlock>>>(dA, dB, dC, N);
 #endif
+
 	cudaEventRecord(stop);
 
 	cudaMemcpy(hC, dC, matrixSizeBytes, cudaMemcpyDeviceToHost);
@@ -138,15 +180,17 @@ int main(void)
 	printMatrix("hC", hC, N);
 #endif
 
-#ifdef NAIVE
-	printf("Naive version\n");	
-#else
+#if defined LARGE_BLOCKS
+	printf("Large blocks version\n");
+#elif defined TILED
 	printf("Tiled version\n");
+#else
+	printf("Naive version\n");	
 #endif
 	printf("N = %d\n", N);
 	printf("Calculation status: %s\n", hC[0] != 0 ? "success" : "failed");
-	printf("Threads per block: %lu x %lu = %lu\n", blockSize, blockSize, blockSize*blockSize);
-	printf("Blocks per grid: %lu x %lu = %lu\n", nBlocks, nBlocks, nBlocks*nBlocks);
+	printf("Threads per block: %u x %u = %u\n", threadsPerBlock.x, threadsPerBlock.y, threadsPerBlock.x * threadsPerBlock.y);
+	printf("Blocks per grid: %u x %u = %u\n", blocksPerGrid.x, blocksPerGrid.y, blocksPerGrid.x * blocksPerGrid.y);
 	printf("Elapsed time: %f ms\n", milliseconds);
 	printf("GPU performance: %f megaevals/s\n", float(N*N)/milliseconds/1000.f);
 
