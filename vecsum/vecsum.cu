@@ -17,12 +17,12 @@ __global__ void vecsum_blocked(float *V)
 {
 	extern __shared__ float Vs[];
 
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	Vs[threadIdx.x]	= V[i];
+	int i = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+	Vs[threadIdx.x]	= V[i] + V[i + blockDim.x];
 	__syncthreads();
 
-	for (int s = 1; s < blockDim.x; s *= 2) {
-		if (threadIdx.x % (s * 2) == 0)
+	for (int s = blockDim.x / 2; s > 0 ; s >>= 1) {
+		if (threadIdx.x < s)
 			Vs[threadIdx.x] += Vs[threadIdx.x + s];
 		__syncthreads();
 	}
@@ -86,7 +86,7 @@ int main(void)
 		vecsum<<<1, n>>>(dV, n);
 	}
 #elif defined(BLOCKED)
-	vecsum_blocked<<<N/BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(dV);
+	vecsum_blocked<<<N/BLOCK_SIZE/2, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(dV);
 #endif
 
 	cudaEventRecord(stop);

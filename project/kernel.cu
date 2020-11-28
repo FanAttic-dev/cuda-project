@@ -82,8 +82,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 	}
 	out[idx] = house_out;
 
-	__syncthreads();
-
+/*
 	if (idx == 0) {
 		int sum = 0;
 		for (int ii = 0; ii < n*n; ++ii) {
@@ -92,6 +91,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 		
 		infections[iter] = sum;
 	}
+*/
 }
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
