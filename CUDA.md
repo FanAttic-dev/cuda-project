@@ -233,6 +233,7 @@ __host__ and __device__ can be combined
 
 - **no global barrier**
 - if you want to synchronize all blocks, you need to stop the current kernel and run a new one
+  - but OK because kernel launch has **negligible HW overhead** and **low SW overhead**
 - for newer GPUs there is a way of synchronization in atomic operations to avoid false sharing
 
 
