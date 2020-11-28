@@ -5,6 +5,7 @@ all: $(TARGET)
 
 $(TARGET): .FORCE
 	nvcc $(FLAGS) -o $@ $(TARGET:=.cu)
+	./$@
 
 clean:
 	-$(RM) *.o

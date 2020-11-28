@@ -1,14 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define N 4096
-#define BLOCK_SIZE 32
+#define BLOCKED
+
+#define N 8192
+#define BLOCK_SIZE 128
 
 __global__ void vecsum(float *V, int n)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 
 	V[i] = V[i] + V[i + blockDim.x];
+}
+
+__global__ void vecsum_blocked(float *V)
+{
+	extern __shared__ float Vs[];
+
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	Vs[threadIdx.x]	= V[i];
+	__syncthreads();
+
+	for (int s = 1; s < blockDim.x; s *= 2) {
+		if (threadIdx.x % (s * 2) == 0)
+			Vs[threadIdx.x] += Vs[threadIdx.x + s];
+		__syncthreads();
+	}
+
+	if (threadIdx.x == 0)
+		V[blockIdx.x * blockDim.x] = Vs[0];
 }
 
 void fillVector(float *v)
@@ -24,6 +44,8 @@ void fillVector(float *v)
 
 int main(void)
 {
+	float sum = 0;
+
 	int device = 0;
 	if (cudaSetDevice(device) != cudaSuccess) {
 		fprintf(stderr, "Could not set CUDA device!\n");
@@ -59,9 +81,13 @@ int main(void)
 
 	cudaEventRecord(start);
 
+#ifdef NON_BLOCKED
 	for (int n = N/2; n > 0; n /= 2) {
 		vecsum<<<1, n>>>(dV, n);
 	}
+#elif defined(BLOCKED)
+	vecsum_blocked<<<N/BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(dV);
+#endif
 
 	cudaEventRecord(stop);
 
@@ -70,8 +96,14 @@ int main(void)
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&milliseconds, start, stop);
 
+#ifdef NON_BLOCKED
+	sum = hV[0];
+#elif defined(BLOCKED)
+	for (int i = 0; i < N; i += BLOCK_SIZE)
+		sum += hV[i];
+#endif
 	printf("N = %d\n", N);
-	printf("Sum: %f\n", hV[0]);
+	printf("Sum: %f\n", sum);
 	printf("Elapsed time: %f ms\n", milliseconds);
 	printf("GPU performance: %f megaevals/s\n", float(N*N)/milliseconds/1000.f);
 
