@@ -36,7 +36,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 		// compare to connectivity
 		if (inf_neighbours > contacts[idx]) {
 			house_out = 10;
-			shared_iter_block_infections[threadIdx.y][threadIdx.x] = 1;
+			++shared_iter_block_infections[threadIdx.y][threadIdx.x];
 		} else {
 			house_out = 0;
 		}
@@ -46,7 +46,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	__syncthreads();
 
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
-		iter_block_infections[blockIdx.y * gridDim.x + blockIdx.x] = 0;
+		iter_block_infections[(iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x)] = 0;
 		for (int ii = 0; ii < BLOCK_SIZE; ++ii) {
 			for (int jj = 0; jj < BLOCK_SIZE; ++jj) {
 				iter_block_infections[(iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x)] += shared_iter_block_infections[ii][jj];
@@ -69,6 +69,17 @@ __global__ void sum_infections_per_iteration(int* const infections, const int* c
 	}
 }
 
+__global__ void reduce_infections(int* const infections, const int* const iter_block_infections, const int grid_size)
+{
+	int iter = blockIdx.x * blockDim.x + threadIdx.x;
+
+	infections[iter] = 0;
+
+	for (int ii = 0; ii < grid_size; ++ii)
+	for (int jj = 0; jj < grid_size; ++jj)
+		infections[iter] += iter_block_infections[(iter * grid_size * grid_size) + (ii * grid_size + jj)];
+}
+
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
 {
 	int *in = city;
@@ -76,7 +87,7 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	int *iter_block_infections; // 3D array storing infections per block per iteration
 
 	int grid_size = ceil(n/BLOCK_SIZE);
-	printf("Grid count: %d\n", grid_size);
+	printf("Block count: %d\n", grid_size);
 
 	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess
 			|| cudaMalloc((void**)&iter_block_infections, iters * grid_size * grid_size * sizeof(int)) != cudaSuccess) {
@@ -84,18 +95,17 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 		return;
 	}
 
-	dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
-	dim3 blocksPerGrid(grid_size, grid_size);
-
 	for (int iter = 0; iter < iters; ++iter) {
-		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, n, iter, out, iter_block_infections);
+		make_iteration<<<dim3(grid_size, grid_size), dim3(BLOCK_SIZE, BLOCK_SIZE)>>>(contacts, in, n, iter, out, iter_block_infections);
 
-		sum_infections_per_iteration<<<1, 1>>>(infections, iter_block_infections, iter, grid_size);
+		//sum_infections_per_iteration<<<1, 1>>>(infections, iter_block_infections, iter, grid_size);
 
 		int *tmp = in;
 		in = out;
 		out = tmp;
 	}
+
+	reduce_infections<<<1, iters>>>(infections, iter_block_infections, grid_size);
 
 	if (in != city) {
 		cudaMemcpy(city, in, n*n*sizeof(int), cudaMemcpyDeviceToDevice);
