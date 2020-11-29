@@ -64,10 +64,6 @@ __global__ void reduce_infections(int* const infections, const int* const iter_b
 	if (iter >= iters)
 		return;
 
-//	if (iter == 64) {
-//		infections[iter] = 5;
-//		return;
-//	}
 	infections[iter] = 0;
 
 	for (int ii = 0; ii < grid_size; ++ii)
@@ -100,8 +96,8 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 		out = tmp;
 	}
 
-	threads_per_block = dim3(32);
-	blocks_per_grid = dim3(ceil(iters / (float) threads_per_block.x));
+	threads_per_block = 32;
+	blocks_per_grid = ceil(iters / (float) threads_per_block.x);
 	reduce_infections<<<blocks_per_grid, threads_per_block>>>(infections, iter_block_infections, iters, grid_size);
 
 	if (in != city) {
