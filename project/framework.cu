@@ -5,13 +5,13 @@
 #include "kernel.cu"
 #include "kernel_CPU.C"
 
-#define INITIAL_SPREAD 0.001
-#define CONTACTS_THRESHOLD 4
+#define INITIAL_SPREAD 0.05
+#define CONTACTS_THRESHOLD 5
 
 #define N /*2048*/ 1024
-#define ITERS 500 //XXX more iterations may show some interesting effects, but are computationally demanding
+#define ITERS 100 //XXX more iterations may show some interesting effects, but are computationally demanding
 
-//#define DEBUG
+#define DEBUG
 
 void createInitialSpread(int *city, int n) {
     int sum = 0;
