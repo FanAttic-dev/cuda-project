@@ -4,53 +4,10 @@
 
 #define BLOCK_SIZE 16
 
-__global__ void make_iteration_single(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out)
+__global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
-	int inf_new = 0;
-
-	//int i = blockIdx.y * blockDim.y + threadIdx.y;
-	//int j = blockIdx.x * blockDim.x + threadIdx.x;
-	for (int i = 0; i < n; ++i) {
-		for (int j = 0; j < n; ++j) {
-			int idx = i * n + j;
-
-			int house_in = in[idx];
-			int *house_out = &out[idx];
-
-			if (house_in > 0) {
-				// infected
-				*house_out = --house_in == 0 ? -30 : house_in;
-			} else if (house_in < 0) {
-				// recovering, immune
-				*house_out = ++house_in;
-			} else {
-				// healthy
-
-				// check neighbours
-				int inf_neighbours = 0;
-				for (int ii = max(0, i-1); ii <= min(i+1, n-1); ++ii)
-					for (int jj = max(0, j-1); jj <= min(j+1, n-1); ++jj)
-						if (in[ii * n + jj] > 0)
-							++inf_neighbours;
-
-				// compare to connectivity
-				if (inf_neighbours > contacts[idx]) {
-					*house_out = 10;
-					++inf_new;
-				} else {
-					*house_out = 0;
-				}
-			}
-		}
-	}
-
-	infections[iter] = inf_new;
-}
-
-__global__ void make_iteration(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out, int* const block_iter_infections)
-{
-	__shared__ int shared_block_iter_infections[BLOCK_SIZE][BLOCK_SIZE];
-	shared_block_iter_infections[threadIdx.y][threadIdx.x] = 0;
+	__shared__ int shared_iter_block_infections[BLOCK_SIZE][BLOCK_SIZE];
+	shared_iter_block_infections[threadIdx.y][threadIdx.x] = 0;
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -79,7 +36,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 		// compare to connectivity
 		if (inf_neighbours > contacts[idx]) {
 			house_out = 10;
-			shared_block_iter_infections[threadIdx.y][threadIdx.x] = 1;
+			shared_iter_block_infections[threadIdx.y][threadIdx.x] = 1;
 		} else {
 			house_out = 0;
 		}
@@ -89,49 +46,40 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 	__syncthreads();
 
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
-		block_iter_infections[blockIdx.y * gridDim.x + blockIdx.x] = 0;
+		iter_block_infections[blockIdx.y * gridDim.x + blockIdx.x] = 0;
 		for (int ii = 0; ii < BLOCK_SIZE; ++ii) {
 			for (int jj = 0; jj < BLOCK_SIZE; ++jj) {
-				block_iter_infections[blockIdx.y * gridDim.x + blockIdx.x] += shared_block_iter_infections[ii][jj];
+				iter_block_infections[(iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x)] += shared_iter_block_infections[ii][jj];
 			}
 		}
 	}
+}
 
-	__syncthreads();
+__global__ void sum_infections_per_iteration(int* const infections, const int* const iter_block_infections, const int iter, const int grid_size)
+{
+	if (threadIdx.x != 0)
+		return;
 
-	if (idx == 0) {
-		infections[iter] = 0;
-		int grid_size = n/BLOCK_SIZE;
-		for (int ii = 0; ii < grid_size; ++ii) {
-			for (int jj = 0; jj < grid_size; ++jj) {
-				infections[iter] += block_iter_infections[ii * gridDim.x + jj];
-			}
+	infections[iter] = 0;
+
+	for (int ii = 0; ii < grid_size; ++ii) {
+		for (int jj = 0; jj < grid_size; ++jj) {
+			infections[iter] += iter_block_infections[(iter * grid_size * grid_size) + (ii * grid_size + jj)];
 		}
-
 	}
-/*
-	if (idx == 0) {
-		int sum = 0;
-		for (int ii = 0; ii < n*n; ++ii) {
-			sum += iter_infections[ii];
-		}
-		
-		infections[iter] = sum;
-	}
-*/
 }
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
 {
 	int *in = city;
 	int *out;
-	int *block_iter_infections;
+	int *iter_block_infections; // 3D array storing infections per block per iteration
 
-	size_t grid_size = ceil(n/BLOCK_SIZE);
-	printf("Grid count: %lu\n", grid_size);
+	int grid_size = ceil(n/BLOCK_SIZE);
+	printf("Grid count: %d\n", grid_size);
 
 	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess
-			|| cudaMalloc((void**)&block_iter_infections, grid_size * sizeof(int)) != cudaSuccess) {
+			|| cudaMalloc((void**)&iter_block_infections, iters * grid_size * grid_size * sizeof(int)) != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed\n");
 		return;
 	}
@@ -140,7 +88,9 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	dim3 blocksPerGrid(grid_size, grid_size);
 
 	for (int iter = 0; iter < iters; ++iter) {
-		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out, block_iter_infections);
+		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, n, iter, out, iter_block_infections);
+
+		sum_infections_per_iteration<<<1, 1>>>(infections, iter_block_infections, iter, grid_size);
 
 		int *tmp = in;
 		in = out;
@@ -154,5 +104,5 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 		cudaFree(out);
 	}
 
-	cudaFree(block_iter_infections);
+	cudaFree(iter_block_infections);
 }
