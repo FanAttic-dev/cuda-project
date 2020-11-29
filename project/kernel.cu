@@ -2,6 +2,8 @@
 // your kernels can be implemented directly here, or included
 // function solveGPU is a device function: it can allocate memory, call CUDA kernels etc.
 
+#define BLOCK_SIZE 16
+
 __global__ void make_iteration_single(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out)
 {
 	int inf_new = 0;
@@ -45,8 +47,11 @@ __global__ void make_iteration_single(const int* const contacts, const int* cons
 	infections[iter] = inf_new;
 }
 
-__global__ void make_iteration(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out, int* const iter_infections)
+__global__ void make_iteration(const int* const contacts, const int* const in, int* const infections, const int n, const int iter, int* const out, int* const block_iter_infections)
 {
+	__shared__ int shared_block_iter_infections[BLOCK_SIZE][BLOCK_SIZE];
+	shared_block_iter_infections[threadIdx.y][threadIdx.x] = 0;
+
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -54,7 +59,6 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 
 	int house_in = in[idx];
 	int house_out = -1;
-	iter_infections[idx] = 0;
 
 	if (house_in > 0) {
 		// infected
@@ -75,13 +79,36 @@ __global__ void make_iteration(const int* const contacts, const int* const in, i
 		// compare to connectivity
 		if (inf_neighbours > contacts[idx]) {
 			house_out = 10;
-			iter_infections[idx] = 1;
+			shared_block_iter_infections[threadIdx.y][threadIdx.x] = 1;
 		} else {
 			house_out = 0;
 		}
 	}
 	out[idx] = house_out;
 
+	__syncthreads();
+
+	if (threadIdx.x == 0 && threadIdx.y == 0) {
+		block_iter_infections[blockIdx.y * gridDim.x + blockIdx.x] = 0;
+		for (int ii = 0; ii < BLOCK_SIZE; ++ii) {
+			for (int jj = 0; jj < BLOCK_SIZE; ++jj) {
+				block_iter_infections[blockIdx.y * gridDim.x + blockIdx.x] += shared_block_iter_infections[ii][jj];
+			}
+		}
+	}
+
+	__syncthreads();
+
+	if (idx == 0) {
+		infections[iter] = 0;
+		int grid_size = n/BLOCK_SIZE;
+		for (int ii = 0; ii < grid_size; ++ii) {
+			for (int jj = 0; jj < grid_size; ++jj) {
+				infections[iter] += block_iter_infections[ii * gridDim.x + jj];
+			}
+		}
+
+	}
 /*
 	if (idx == 0) {
 		int sum = 0;
@@ -98,19 +125,22 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 {
 	int *in = city;
 	int *out;
-	int *iter_infections;
+	int *block_iter_infections;
+
+	size_t grid_size = ceil(n/BLOCK_SIZE);
+	printf("Grid count: %lu\n", grid_size);
 
 	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess
-			|| cudaMalloc((void**)&iter_infections, n*n*sizeof(int)) != cudaSuccess) {
+			|| cudaMalloc((void**)&block_iter_infections, grid_size * sizeof(int)) != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed\n");
 		return;
 	}
 
-	dim3 threadsPerBlock(16, 16);
-	dim3 blocksPerGrid(n/16, n/16);
+	dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
+	dim3 blocksPerGrid(grid_size, grid_size);
 
 	for (int iter = 0; iter < iters; ++iter) {
-		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out, iter_infections);
+		make_iteration<<<blocksPerGrid, threadsPerBlock>>>(contacts, in, infections, n, iter, out, block_iter_infections);
 
 		int *tmp = in;
 		in = out;
@@ -124,5 +154,5 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 		cudaFree(out);
 	}
 
-	cudaFree(iter_infections);
+	cudaFree(block_iter_infections);
 }
