@@ -1,41 +1,53 @@
-// write your code into this file
-// your kernels can be implemented directly here, or included
-// function solveGPU is a device function: it can allocate memory, call CUDA kernels etc.
 
 #define BLOCK_SIZE 8
-//#define DEBUG
 
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
 	__shared__ int shared_iter_block_infections[BLOCK_SIZE][BLOCK_SIZE];
 	shared_iter_block_infections[threadIdx.y][threadIdx.x] = 0;
 
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	int y = blockIdx.y * blockDim.y + threadIdx.y;
+	int x = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (i >= n || j >= n)
+	if (y >= n || x >= n)
 		return;
 
-	int idx = i * n + j;
+	int idx = y * n + x;
 
-	int house_in = in[idx];
-	int house_out = -1;
+	__shared__ int shared_in[BLOCK_SIZE][BLOCK_SIZE];
+	int house_in = shared_in[threadIdx.y][threadIdx.x] = in[idx];
 
-	if (house_in > 0) {
-		// infected
+	__syncthreads();
+
+	int house_out;
+
+	if (house_in > 0) { // infected
 		house_out = --house_in == 0 ? -30 : house_in;
-	} else if (house_in < 0) {
-		// recovering, immune
+	} else if (house_in < 0) { // recovering, immune
 		house_out = ++house_in;
-	} else {
-		// healthy
-
+	} else { // healthy
 		// check neighbours
 		int inf_neighbours = 0;
-		for (int ii = max(0, i-1); ii <= min(i+1, n-1); ++ii)
-		for (int jj = max(0, j-1); jj <= min(j+1, n-1); ++jj)
-			if (in[ii * n + jj] > 0)
+		for (int dy = -1; dy <= 1; ++dy)
+		for (int dx = -1; dx <= 1; ++dx) {
+			// check bounds
+			if ((x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
+				continue;
+
+			// block local coordinates
+			int xx = threadIdx.x + dx;
+			int yy = threadIdx.y + dy;
+
+			int neighbor;
+			// use shared memory if sampling within block
+			if ((xx >= 0) && (xx < blockDim.x) && (yy >= 0) && (yy < blockDim.y))
+				neighbor = shared_in[yy][xx];
+			else // use global memory if out of block bounds
+				neighbor = in[(y + dy) * n + (x + dx)];
+
+			if (neighbor > 0)
 				++inf_neighbours;
+		}
 
 		// compare to connectivity
 		if (inf_neighbours > contacts[idx]) {
@@ -49,16 +61,20 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 
 	__syncthreads();
 
+	// sum and save the total number of new infections in this iteration per block
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
 		iter_block_infections[iter_block_idx] = 0;
-		for (int ii = 0; ii < BLOCK_SIZE; ++ii)
-		for (int jj = 0; jj < BLOCK_SIZE; ++jj) {
-			iter_block_infections[iter_block_idx] += shared_iter_block_infections[ii][jj];
+		for (int yy = 0; yy < BLOCK_SIZE; ++yy)
+		for (int xx = 0; xx < BLOCK_SIZE; ++xx) {
+			iter_block_infections[iter_block_idx] += shared_iter_block_infections[yy][xx];
 		}
 	}
 }
 
+/*
+   For each iteration, sums infections per block to compute the number of new infections per iteration.
+*/
 __global__ void reduce_infections(int* const infections, const int* const iter_block_infections, const int iters, const int grid_size)
 {
 	int iter = blockIdx.x * blockDim.x + threadIdx.x;
@@ -75,16 +91,14 @@ __global__ void reduce_infections(int* const infections, const int* const iter_b
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
 {
+	int grid_size = ceil(n / (float) BLOCK_SIZE);
+
 	int *in = city;
 	int *out;
-	int *iter_block_infections; // 3D array storing infections per block per iteration
+	int *iter_block_infections; 	// [iters][grid_size][grid_size] 
+					// 3D array storing infections per block per iteration
 
-	int grid_size = ceil(n / (float) BLOCK_SIZE);
-#ifdef DEBUG
-	printf("Block count: %d\n", grid_size);
-#endif
-
-	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess
+	if (cudaMalloc((void**)&out, n * n * sizeof(int)) != cudaSuccess
 			|| cudaMalloc((void**)&iter_block_infections, iters * grid_size * grid_size * sizeof(int)) != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed\n");
 		return;
@@ -100,6 +114,7 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 		out = tmp;
 	}
 
+	// reduce infections per iter, which are stored per block
 	threads_per_block = 32;
 	blocks_per_grid = ceil(iters / (float) threads_per_block.x);
 	reduce_infections<<<blocks_per_grid, threads_per_block>>>(infections, iter_block_infections, iters, grid_size);

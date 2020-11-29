@@ -11,6 +11,8 @@
 #define N /*2048*/ 512
 #define ITERS 100 //XXX more iterations may show some interesting effects, but are computationally demanding
 
+//#define DEBUG
+
 void createInitialSpread(int *city, int n) {
     int sum = 0;
     for (int i = 0; i < n*n; i++) {
@@ -39,7 +41,7 @@ int main(int argc, char **argv){
     int *dCity = NULL;          // homes in GPU memory
     int *dInfections = NULL;    // time serie in GPU memory
 
-    //srand(123);
+    srand(123);
 
     // parse command line
     int device = 0;
@@ -107,6 +109,7 @@ int main(int argc, char **argv){
     printf("GPU performance: %f megaevals/s\n",
                 float(N*N)*float(ITERS)/time/1e3f);
 
+#ifdef DEBUG
     // dump results
     {printf("Infections spread in time\n\n");
     int total = 0;
@@ -115,6 +118,7 @@ int main(int argc, char **argv){
         total += infections[i];
     }
     printf("Infected in total: %i\n", total);}
+#endif
 
     // check GPU results
     cudaMemcpy(cityGPU, dCity, N*N*sizeof(dCity[0]), cudaMemcpyDeviceToHost);
