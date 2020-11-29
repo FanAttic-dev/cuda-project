@@ -3,19 +3,20 @@
 // function solveGPU is a device function: it can allocate memory, call CUDA kernels etc.
 
 #define BLOCK_SIZE 8
+//#define DEBUG
 
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
+	__shared__ int shared_iter_block_infections[BLOCK_SIZE][BLOCK_SIZE];
+	shared_iter_block_infections[threadIdx.y][threadIdx.x] = 0;
+
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	int idx = i * n + j;
-
-	if (idx >= n * n)
+	if (i >= n || j >= n)
 		return;
 
-	__shared__ int shared_iter_block_infections[BLOCK_SIZE][BLOCK_SIZE];
-	shared_iter_block_infections[threadIdx.y][threadIdx.x] = 0;
+	int idx = i * n + j;
 
 	int house_in = in[idx];
 	int house_out = -1;
@@ -49,10 +50,11 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	__syncthreads();
 
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
-		iter_block_infections[(iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x)] = 0;
+		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
+		iter_block_infections[iter_block_idx] = 0;
 		for (int ii = 0; ii < BLOCK_SIZE; ++ii)
 		for (int jj = 0; jj < BLOCK_SIZE; ++jj) {
-			iter_block_infections[(iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x)] += shared_iter_block_infections[ii][jj];
+			iter_block_infections[iter_block_idx] += shared_iter_block_infections[ii][jj];
 		}
 	}
 }
@@ -78,7 +80,9 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	int *iter_block_infections; // 3D array storing infections per block per iteration
 
 	int grid_size = ceil(n / (float) BLOCK_SIZE);
+#ifdef DEBUG
 	printf("Block count: %d\n", grid_size);
+#endif
 
 	if (cudaMalloc((void**)&out, n*n*sizeof(int)) != cudaSuccess
 			|| cudaMalloc((void**)&iter_block_infections, iters * grid_size * grid_size * sizeof(int)) != cudaSuccess) {
