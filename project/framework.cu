@@ -8,8 +8,8 @@
 #define INITIAL_SPREAD 0.001
 #define CONTACTS_THRESHOLD 4
 
-#define N /*2048*/ 512
-#define ITERS 100 //XXX more iterations may show some interesting effects, but are computationally demanding
+#define N /*2048*/ 1024
+#define ITERS 500 //XXX more iterations may show some interesting effects, but are computationally demanding
 
 //#define DEBUG
 
