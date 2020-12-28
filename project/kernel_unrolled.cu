@@ -23,15 +23,25 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	} else { // healthy
 		// check neighbours
 		int inf_neighbours = 0;
-		for (int dy = -1; dy <= 1; ++dy)
-		for (int dx = -1; dx <= 1; ++dx) {
-			// check bounds
-			if ((x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
-				continue;
 
-			if (in[(y + dy) * n + (x + dx)] > 0)
-				++inf_neighbours;
-		}
+		if (x > 0 && y > 0 && (in[(y - 1) * n + (x - 1)] > 0))
+			++inf_neighbours;
+		if (x > 0 && (in[y * n + (x - 1)] > 0))
+			++inf_neighbours;
+		if (y > 0 && (in[(y - 1) * n + x]) > 0)
+			++inf_neighbours;
+
+		if ((x + 1) < n && (in[y * n + (x + 1)] > 0))
+			++inf_neighbours;
+		if ((y + 1) < n && (in[(y + 1) * n + x] > 0))
+			++inf_neighbours;
+		if ((x + 1) < n && (y + 1) < n && (in[(y + 1) * n + (x + 1)] > 0))
+			++inf_neighbours;
+
+		if ((x + 1) < n && y > 0 && (in[(y - 1) * n + (x + 1)] > 0))
+			++inf_neighbours;
+		if (x > 0 && (y + 1) < n && (in[(y + 1) * n + (x - 1)] > 0))
+			++inf_neighbours;
 
 		// compare to connectivity
 		if (inf_neighbours > contacts[idx]) {

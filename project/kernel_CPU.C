@@ -35,7 +35,7 @@ void solveCPU(const int* const contacts, int* const city, int* const infections,
         int *tmp = in;
         in = out;
         out = tmp;
-	infections[it] = infSum;
+    	infections[it] = infSum;
     }
 
     if (in != city) {
