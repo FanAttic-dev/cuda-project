@@ -91,13 +91,14 @@ __global__ void reduce_infections(int* const infections, const int* const iter_b
 
 	__syncthreads();
 
-	for (unsigned int s = 1; s < blockDim.x; s *= 2) {
-		int idx = 2 * s * tid;
-		if (idx < blockDim.x) {
-			shared[idx] += shared[idx + s];
-		}
+	for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+		if (tid < s)
+			shared[tid] += shared[tid + s];
+
 		__syncthreads();
 	}
+
+	// TODO unroll
 
 	if (tid == 0) {
 		infections[iter] = shared[0];
