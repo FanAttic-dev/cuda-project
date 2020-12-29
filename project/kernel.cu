@@ -1,4 +1,4 @@
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 #define REDUCTION_BLOCK_SIZE 1024
 
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
@@ -75,21 +75,32 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 /*
    For each iteration, sums infections per block to compute the number of new infections per iteration.
 */
-__global__ void reduce_infections(int* const infections, const int* const iter_block_infections, const int iters, const int grid_size)
+__global__ void reduce_infections(int* const infections, const int* const iter_block_infections, const int iters, const int blocks_per_iter, const int grid_size)
 {
-	int iter = blockIdx.x * blockDim.x + threadIdx.x;
+	__shared__ int shared[REDUCTION_BLOCK_SIZE];
 
-	if (iter >= iters)
-		return;
+	const int tid = threadIdx.x;
+	const int iter = blockIdx.x;
+	const int infections_idx = iter * grid_size * grid_size;
+	shared[tid] = iter_block_infections[infections_idx + tid];
 
-	int iter_infections = 0;
+	// 2048 / 1024
+	for (int i = 1; i < blocks_per_iter; ++i) {
+		shared[tid] += iter_block_infections[infections_idx + tid + (i * blockDim.x)];
+	}
 
-	// TODO reduce
-	for (int ii = 0; ii < grid_size; ++ii)
-	for (int jj = 0; jj < grid_size; ++jj)
-		iter_infections += iter_block_infections[(iter * grid_size * grid_size) + (ii * grid_size + jj)];
+	__syncthreads();
 
-	infections[iter] = iter_infections;
+	for (unsigned int s = 1; s < blockDim.x; s *= 2) {
+		if (tid % (2 * s) == 0) {
+			shared[tid] += shared[tid + s];
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		infections[iter] = shared[0];
+	}
 }
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
@@ -118,8 +129,9 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 
 	// reduce infections per iter, which are stored per block
 	threads_per_block = REDUCTION_BLOCK_SIZE;
-	blocks_per_grid = ceil(iters / (float) threads_per_block.x);
-	reduce_infections<<<blocks_per_grid, threads_per_block>>>(infections, iter_block_infections, iters, grid_size);
+	blocks_per_grid = iters;
+	int blocks_per_iter = (grid_size * grid_size) / REDUCTION_BLOCK_SIZE;
+	reduce_infections<<<blocks_per_grid, threads_per_block>>>(infections, iter_block_infections, iters, blocks_per_iter, grid_size);
 
 	if (in != city) {
 		cudaMemcpy(city, in, n*n*sizeof(int), cudaMemcpyDeviceToDevice);
