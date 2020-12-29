@@ -1,4 +1,4 @@
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 16 // max 32
 #define REDUCTION_BLOCK_SIZE 1024
 
 __device__ void warp_reduce(volatile int *shared_data, int tid)
@@ -38,7 +38,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 		for (int dy = -1; dy <= 1; ++dy)
 		for (int dx = -1; dx <= 1; ++dx) {
 			// check bounds
-			if ((x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n) || (dx == 0 && dy == 0))
+			if ((dx == 0 && dy == 0) || (x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
 				continue;
 
 			inf_neighbours += (in[(y + dy) * n + (x + dx)] > 0) ? 1 : 0;
@@ -68,7 +68,21 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 
 	// reduction
 	// sum and save the total number of new infections in this iteration per block
-	for (unsigned int s = (BLOCK_SIZE * BLOCK_SIZE) / 2; s > 32; s >>= 1) {
+/*
+	// TODO make generic
+	if (idx_local < 128) {
+		shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + 128];
+		__syncthreads();
+	}
+
+	if (idx_local < 64) {
+		shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + 64];
+		__syncthreads();
+	}
+*/
+
+	unsigned int total_block_size = BLOCK_SIZE * BLOCK_SIZE; // 16 * 16 = 256
+	for (unsigned int s = total_block_size / 2; s > 32; s >>= 1) {
 		if (idx_local < s) {
 			shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + s];
 		}
@@ -77,9 +91,10 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 
 	if (idx_local < 32) {
 		warp_reduce(shared_iter_block_infections, idx_local);
+		__syncthreads();
 	}
 
-	if (threadIdx.x == 0 && threadIdx.y == 0) {
+	if (idx_local == 0) {
 		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
 		iter_block_infections[iter_block_idx] = shared_iter_block_infections[0];
 	}
