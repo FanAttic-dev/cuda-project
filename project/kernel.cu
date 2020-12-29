@@ -3,8 +3,9 @@
 
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
-	__shared__ int shared_iter_block_infections[BLOCK_SIZE][BLOCK_SIZE];
-	shared_iter_block_infections[threadIdx.y][threadIdx.x] = 0;
+	__shared__ int shared_iter_block_infections[BLOCK_SIZE * BLOCK_SIZE];
+	int idx_local = threadIdx.y * blockDim.x + threadIdx.x;
+	shared_iter_block_infections[idx_local] = 0;
 
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -12,9 +13,9 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	if (y >= n || x >= n)
 		return;
 
-	int idx = y * n + x;
+	int idx_global = y * n + x;
 
-	int house_in = in[idx];
+	int house_in = in[idx_global];
 	int house_out;
 
 	if (house_in > 0) { // infected
@@ -34,41 +35,29 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 		}
 
 		// compare to connectivity
-		if (inf_neighbours > contacts[idx]) {
+		if (inf_neighbours > contacts[idx_global]) {
 			house_out = 10;
-			++shared_iter_block_infections[threadIdx.y][threadIdx.x];
+			++shared_iter_block_infections[idx_local];
 		} else {
 			house_out = 0;
 		}
 	}
-	out[idx] = house_out;
+	out[idx_global] = house_out;
 
 	__syncthreads();
 
 	// reduction
 	// sum and save the total number of new infections in this iteration per block
-
-	// BLOCK_SIZE / 2 x BLOCK_SIZE / 2
-	int reduction_block_size = BLOCK_SIZE / 2;
-	if ((threadIdx.x % reduction_block_size == 0) && (threadIdx.y % reduction_block_size == 0)) {
-		for (int yy = 0; yy < reduction_block_size; ++yy) {
-		for (int xx = 0; xx < reduction_block_size; ++xx) {
-			if (xx + yy == 0)
-				continue;
-			shared_iter_block_infections[threadIdx.y][threadIdx.x] += 
-				shared_iter_block_infections[threadIdx.y + yy][threadIdx.x + xx];
+	for (unsigned int s = (BLOCK_SIZE * BLOCK_SIZE) / 2; s > 0; s >>= 1) {
+		if (idx_local < s) {	
+			shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + s];
 		}
-		}
+		__syncthreads();
 	}
-
-	__syncthreads();
 
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
-		iter_block_infections[iter_block_idx] = 0;
-		for (int yy = 0; yy < BLOCK_SIZE; yy += reduction_block_size)
-		for (int xx = 0; xx < BLOCK_SIZE; xx += reduction_block_size)
-			iter_block_infections[iter_block_idx] += shared_iter_block_infections[yy][xx];
+		iter_block_infections[iter_block_idx] = shared_iter_block_infections[0];
 	}
 }
 
@@ -84,7 +73,7 @@ __global__ void reduce_infections(int* const infections, const int* const iter_b
 	const int infections_idx = iter * grid_size * grid_size;
 	shared[tid] = iter_block_infections[infections_idx + tid];
 
-	// 2048 / 1024
+	// 2048 / 1024 = 2
 	for (int i = 1; i < blocks_per_iter; ++i) {
 		shared[tid] += iter_block_infections[infections_idx + tid + (i * blockDim.x)];
 	}
