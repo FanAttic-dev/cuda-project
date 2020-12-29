@@ -1,5 +1,15 @@
-#define BLOCK_SIZE 32
+#define BLOCK_SIZE 16
 #define REDUCTION_BLOCK_SIZE 1024
+
+__device__ void warp_reduce(volatile int *shared_data, int tid)
+{
+	shared_data[tid] += shared_data[tid + 32];
+	shared_data[tid] += shared_data[tid + 16];
+	shared_data[tid] += shared_data[tid + 8];
+	shared_data[tid] += shared_data[tid + 4];
+	shared_data[tid] += shared_data[tid + 2];
+	shared_data[tid] += shared_data[tid + 1];
+}
 
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
@@ -45,20 +55,35 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	out[idx_global] = house_out;
 
 	__syncthreads();
+/*	
+	// sum and save the total number of new infections in this iteration per block
+	if (threadIdx.x == 0 && threadIdx.y == 0) {
+		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
+		iter_block_infections[iter_block_idx] = 0;
+		for (int yy = 0; yy < BLOCK_SIZE; ++yy)
+		for (int xx = 0; xx < BLOCK_SIZE; ++xx)
+			iter_block_infections[iter_block_idx] += shared_iter_block_infections[yy * BLOCK_SIZE + xx];
+	}
+*/	
 
 	// reduction
 	// sum and save the total number of new infections in this iteration per block
-	for (unsigned int s = (BLOCK_SIZE * BLOCK_SIZE) / 2; s > 0; s >>= 1) {
-		if (idx_local < s) {	
+	for (unsigned int s = (BLOCK_SIZE * BLOCK_SIZE) / 2; s > 32; s >>= 1) {
+		if (idx_local < s) {
 			shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + s];
 		}
 		__syncthreads();
+	}
+
+	if (idx_local < 32) {
+		warp_reduce(shared_iter_block_infections, idx_local);
 	}
 
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
 		iter_block_infections[iter_block_idx] = shared_iter_block_infections[0];
 	}
+
 }
 
 /*
@@ -86,8 +111,6 @@ __global__ void reduce_infections(int* const infections, const int* const iter_b
 
 		__syncthreads();
 	}
-
-	// TODO unroll
 
 	if (tid == 0) {
 		infections[iter] = shared[0];
