@@ -1,4 +1,5 @@
 #define BLOCK_SIZE 16
+#define REDUCTION_BLOCK_SIZE 1024
 
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
@@ -26,11 +27,10 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 		for (int dy = -1; dy <= 1; ++dy)
 		for (int dx = -1; dx <= 1; ++dx) {
 			// check bounds
-			if ((x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
+			if ((x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n) || (dx == 0 && dy == 0))
 				continue;
 
-			if (in[(y + dy) * n + (x + dx)] > 0)
-				++inf_neighbours;
+			inf_neighbours += (in[(y + dy) * n + (x + dx)] > 0) ? 1 : 0;
 		}
 
 		// compare to connectivity
@@ -45,12 +45,29 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 
 	__syncthreads();
 
+	// reduction
 	// sum and save the total number of new infections in this iteration per block
+
+	// BLOCK_SIZE / 2 x BLOCK_SIZE / 2
+	int reduction_block_size = BLOCK_SIZE / 2;
+	if ((threadIdx.x % reduction_block_size == 0) && (threadIdx.y % reduction_block_size == 0)) {
+		for (int yy = 0; yy < reduction_block_size; ++yy) {
+		for (int xx = 0; xx < reduction_block_size; ++xx) {
+			if (xx + yy == 0)
+				continue;
+			shared_iter_block_infections[threadIdx.y][threadIdx.x] += 
+				shared_iter_block_infections[threadIdx.y + yy][threadIdx.x + xx];
+		}
+		}
+	}
+
+	__syncthreads();
+
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
 		iter_block_infections[iter_block_idx] = 0;
-		for (int yy = 0; yy < BLOCK_SIZE; ++yy)
-		for (int xx = 0; xx < BLOCK_SIZE; ++xx)
+		for (int yy = 0; yy < BLOCK_SIZE; yy += reduction_block_size)
+		for (int xx = 0; xx < BLOCK_SIZE; xx += reduction_block_size)
 			iter_block_infections[iter_block_idx] += shared_iter_block_infections[yy][xx];
 	}
 }
@@ -65,11 +82,14 @@ __global__ void reduce_infections(int* const infections, const int* const iter_b
 	if (iter >= iters)
 		return;
 
-	infections[iter] = 0;
+	int iter_infections = 0;
 
+	// TODO reduce
 	for (int ii = 0; ii < grid_size; ++ii)
 	for (int jj = 0; jj < grid_size; ++jj)
-		infections[iter] += iter_block_infections[(iter * grid_size * grid_size) + (ii * grid_size + jj)];
+		iter_infections += iter_block_infections[(iter * grid_size * grid_size) + (ii * grid_size + jj)];
+
+	infections[iter] = iter_infections;
 }
 
 void solveGPU(const int* const contacts, int* const city, int* const infections, const int n, const int iters)
@@ -97,7 +117,7 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 	}
 
 	// reduce infections per iter, which are stored per block
-	threads_per_block = 64;
+	threads_per_block = REDUCTION_BLOCK_SIZE;
 	blocks_per_grid = ceil(iters / (float) threads_per_block.x);
 	reduce_infections<<<blocks_per_grid, threads_per_block>>>(infections, iter_block_infections, iters, grid_size);
 
