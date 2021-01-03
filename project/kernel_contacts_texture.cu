@@ -20,10 +20,6 @@ __device__ bool check_neighbours(const int* const city, const int n, const int x
 	int inf_neighbours = 0;
 	for (int dy = -1; dy <= 1; ++dy) {
 		for (int dx = -1; dx <= 1; ++dx) { 
-			// check bounds
-			if ((dx == 0 && dy == 0) || (x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
-				continue;
-
 			if (city[(y + dy) * n + (x + dx)] > 0)
 				++inf_neighbours;
 		}
