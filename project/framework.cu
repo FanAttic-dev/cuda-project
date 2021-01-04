@@ -8,7 +8,7 @@
 #define INITIAL_SPREAD 0.05
 #define CONTACTS_THRESHOLD 5
 
-#define N 1056
+#define N 1088
 #define ITERS 100 //XXX more iterations may show some interesting effects, but are computationally demanding
 
 #define DEBUG

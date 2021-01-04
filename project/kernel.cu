@@ -1,6 +1,6 @@
 #define BLOCK_SIZE_X 32
-#define BLOCK_SIZE_Y 16
-#define REDUCTION_BLOCK_SIZE 32
+#define BLOCK_SIZE_Y 8
+#define REDUCTION_BLOCK_SIZE 256
 
 __inline__ __device__ bool check_neighbours_global_border(const int* const in, const int n, const int x, const int y, const int threshold)
 {	
@@ -85,7 +85,7 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	if (idx_local < 32) {
 		mySum += shared_iter_block_infections[idx_local + 32];
 
-		for (int offset = warpSize >> 1; offset > 0; offset >>= 1)
+		for (unsigned int offset = warpSize >> 1; offset > 0; offset >>= 1)
 			mySum += __shfl_down_sync(0xffffffff, mySum, offset);
 	}
 
@@ -100,45 +100,44 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 /*
    For each iteration, sums infections per block to compute the number of new infections per iteration.
 */
-__global__ void reduce_infections(int* const infections, const int* const iter_block_infections, const int iters, const int blocks_per_iter, const dim3 grid_size)
+__global__ void reduce_infections(int* const infections, const int* const iter_block_infections, const int iters, const dim3 grid_size)
 {
-	__shared__ int shared[REDUCTION_BLOCK_SIZE];
-
+	extern __shared__ int shared_row[];
 	const int tid = threadIdx.x;
 	const int iter = blockIdx.x;
-	const int infections_idx = iter * grid_size.x * grid_size.y; //+ tid;
+	const int iter_idx = iter * grid_size.x * grid_size.y;
 
-	int mySum = 0;
-	if (tid == 0) {
-		for (int i = 0; i < grid_size.x * grid_size.y; ++i)
-			mySum += iter_block_infections[infections_idx + i];
-	}
+	if (tid >= grid_size.x)
+		return;
 
-/*
-	int mySum = iter_block_infections[infections_idx];
-	for (int i = 1; i < blocks_per_iter; ++i) {
-		shared[tid] = mySum = mySum + iter_block_infections[infections_idx + (i * REDUCTION_BLOCK_SIZE)];
-	}
-
-	__syncthreads();
-
-
-	for (unsigned int offset = blockDim.x >> 1; offset > 32; offset >>= 1) {
-		if (tid < offset)
-			shared[tid] = mySum = mySum + shared[tid + offset];
+	int iter_sum = 0;
+	for (int row = 0; row < grid_size.y; ++row) {
+		int row_sum = shared_row[tid] = iter_block_infections[iter_idx + (row * grid_size.x) + tid];
 
 		__syncthreads();
+
+		// reduction
+		for (unsigned int offset = blockDim.x >> 1; offset > 32; offset >>= 1) {
+			if (tid < offset && tid + offset < grid_size.x)
+				shared_row[tid] = row_sum = row_sum + shared_row[tid + offset];
+
+			__syncthreads();
+		}
+
+		if (tid < 32) {
+			row_sum += shared_row[tid + 32];
+
+			for (unsigned int offset = warpSize >> 1; offset > 0; offset >>= 1)
+				row_sum += __shfl_down_sync(0xffffffff, row_sum, offset);
+		}
+
+		if (tid == 0)
+			iter_sum += row_sum;
+
 	}
 
-	if (tid < 32) {
-		mySum += shared[tid + 32];
-
-		for (int offset = warpSize >> 1; offset > 0; offset >>= 1)
-			mySum += __shfl_down_sync(0xffffffff, mySum, offset);
-	}
-*/
 	if (tid == 0) {
-		infections[iter] = mySum;
+		infections[iter] = iter_sum;
 	}
 }
 
@@ -167,13 +166,10 @@ void solveGPU(const int* const contacts, int* const city, int* const infections,
 		out = tmp;
 	}
 
-	//printf("Grid size: %d x %d\n", grid_size, grid_size);
-
 	// reduce infections per iteration
 	threads_per_block = REDUCTION_BLOCK_SIZE;
 	blocks_per_grid = iters;
-	int blocks_per_iter = ceil((grid_size.x * grid_size.y) / REDUCTION_BLOCK_SIZE);
-	reduce_infections<<<blocks_per_grid, threads_per_block>>>(infections, iter_block_infections, iters, blocks_per_iter, grid_size);
+	reduce_infections<<<blocks_per_grid, threads_per_block, grid_size.x>>>(infections, iter_block_infections, iters, grid_size);
 
 	if (in != city) {
 		cudaMemcpy(city, in, n*n*sizeof(int), cudaMemcpyDeviceToDevice);
