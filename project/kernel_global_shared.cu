@@ -11,7 +11,7 @@ __device__ void warp_reduce(volatile int *shared_data, int tid)
 	shared_data[tid] += shared_data[tid + 1];
 }
 
-__shared__ int shared_in_block[BLOCK_SIZE][BLOCK_SIZE];
+__shared__ int shared_in_block[BLOCK_SIZE+2][BLOCK_SIZE+2];
 
 __device__ bool check_neighbours_shared(const int goal)
 {	
@@ -33,23 +33,6 @@ __device__ bool check_neighbours_shared(const int goal)
 	return inf_neighbours > goal;
 }
 
-__device__ bool check_neighbours_global(const int* const in, const int n, const int x, const int y, const int goal)
-{	
-	// check neighbours
-	int inf_neighbours = 0;
-	for (int dx = -1; dx <= 1; ++dx) 
-	for (int dy = -1; dy <= 1; ++dy) {
-		// check bounds
-		if ((dx == 0 && dy == 0) || (x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
-			continue;
-
-		if (in[(y + dy) * n + (x + dx)] > 0)
-			++inf_neighbours;
-	}
-
-	return inf_neighbours > goal;
-}
-
 __global__ void make_iteration(const int* const contacts, const int* const in, const int n, const int iter, int* const out, int* const iter_block_infections)
 {
 	__shared__ int shared_iter_block_infections[BLOCK_SIZE * BLOCK_SIZE];
@@ -63,12 +46,30 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 		return;
 
 	const int idx_global = y * n + x;
-	shared_in_block[threadIdx.y][threadIdx.x] = in[idx_global];
+	shared_in_block[threadIdx.y+1][threadIdx.x+1] = in[idx_global];
+
+	// load borders
+	if (threadIdx.x == 0) {
+		shared_in_block[threadIdx.y+1][0] = x == 0 ? 0 : in[idx_global - 1];
+	} else if (threadIdx.y == 0) {
+		shared_in_block[0][threadIdx.x+1] = y == 0 ? 0 : in[idx_global - n];
+	} else if (threadIdx.x == BLOCK_SIZE - 1) {
+		shared_in_block[threadIdx.y+1][BLOCK_SIZE+1] = x == (n-1) ? 0 : in[idx_global + 1];
+	} else if (threadIdx.y == BLOCK_SIZE - 1) {
+		shared_in_block[BLOCK_SIZE+1][threadIdx.x+1] = y == (n-1) ? 0 : in[idx_global + 1];
+	}
+
+	if (threadIdx.x == 0 && threadIdx.y == 0) { // upper left
+		shared_in_block[0][0] = (x == 0 || y == 0) ? 0 : in[idx_global - n - 1];
+	} else if (threadIdx.x == BLOCK_SIZE - 1 && threadIdx.y == 0) { // upper right
+		shared_in_block[0][BLOCK_SIZE+1] = (x == n-1 || y == 0) ? 0 : in[idx_global - n + 1];
+	} else if (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE - 1) { // bottom left
+		shared_in_block[BLOCK_SIZE+1][0] = (x == 0 || y == n-1) ? 0 : in[idx_global + n - 1];
+	} else if (threadIdx.x == BLOCK_SIZE - 1 && threadIdx.y == BLOCK_SIZE - 1) { // bottom right
+		shared_in_block[BLOCKS_SIZE+1][BLOCK_SIZE+1] = (x == n-1 || y == n-1) ? 0 : in[idx_global + n + 1];
+	}
+	
 	__syncthreads();
-//	if (threadIdx.x == 0) {
-//		shared_in_block[threadIdx.y+1][0] = x != 0 in[idx_global - 1];
-//		shared_in_block[threadIdx.y+1][BLOCK_SIZE]
-//	}
 
 	const int house_in = in[idx_global];
 	int house_out = 0;
