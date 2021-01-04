@@ -1,4 +1,4 @@
-#define BLOCK_SIZE 16 // max 32
+#define BLOCK_SIZE 16
 #define REDUCTION_BLOCK_SIZE 512
 
 __device__ void warp_reduce(volatile int *shared_data, int tid)
@@ -15,14 +15,15 @@ __device__ bool check_neighbours_global(const int* const in, const int n, const 
 {	
 	// check neighbours
 	int inf_neighbours = 0;
-	for (int dx = -1; dx <= 1; ++dx) 
-	for (int dy = -1; dy <= 1; ++dy) {
-		// check bounds
-		if ((dx == 0 && dy == 0) || (x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
-			continue;
+	for (int dx = -1; dx <= 1; ++dx) {
+		for (int dy = -1; dy <= 1; ++dy) {
+			// check bounds
+			if ((dx == 0 && dy == 0) || (x + dx < 0) || (x + dx >= n) || (y + dy < 0) || (y + dy >= n))
+				continue;
 
-		if (in[(y + dy) * n + (x + dx)] > 0)
-			++inf_neighbours;
+			if (in[(y + dy) * n + (x + dx)] > 0)
+				++inf_neighbours;
+		}
 	}
 
 	return inf_neighbours > threshold;
@@ -58,18 +59,8 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 	} else { // (house_in < 0) // recovering, immune
 		house_out = house_in + 1;
 	} 
-	__syncthreads();
 
-/*	
-	// sum and save the total number of new infections in this iteration per block
-	if (idx_local == 0) {
-		int iter_block_idx = (iter * gridDim.x * gridDim.y) + (blockIdx.y * gridDim.x + blockIdx.x);
-		iter_block_infections[iter_block_idx] = 0;
-		for (int yy = 0; yy < BLOCK_SIZE; ++yy)
-		for (int xx = 0; xx < BLOCK_SIZE; ++xx)
-			iter_block_infections[iter_block_idx] += shared_iter_block_infections[yy * BLOCK_SIZE + xx];
-	}
-*/
+	__syncthreads();
 
 	// reduction
 	// sum and save the total number of new infections in this iteration per block
@@ -79,18 +70,6 @@ __global__ void make_iteration(const int* const contacts, const int* const in, c
 		}
 		__syncthreads();
 	}
-/*
-	// TODO make generic
-	if (idx_local < 128) {
-		shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + 128];
-		__syncthreads();
-	}
-
-	if (idx_local < 64) {
-		shared_iter_block_infections[idx_local] += shared_iter_block_infections[idx_local + 64];
-		__syncthreads();
-	}
-*/
 
 	if (idx_local < 32) {
 		warp_reduce(shared_iter_block_infections, idx_local);

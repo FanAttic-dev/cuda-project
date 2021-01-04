@@ -125,15 +125,20 @@ __host__ and __device__ can be combined
 
 - to maximize throughput, avoid bad parallel access pattern
 
+- Fermi caches
+
+  - L1: 256 B per row, 16 kB or 48 kB per multiprocessor
+  - L2: 32 B per row, 768 kB in total
+  
   
 
 ### Coalesced Memory Access
 
-- global memory is split into 64B segments
+- **global memory is split into 64B** segments
 
-  - two of these segments are aggregated into 128B segments
+  - two of these segments are aggregated into **128B** segments
 
-- one memory transation can transfer 32, 64, or 128B words
+- one memory transation can transfer **32, 64, or 128B** words
 
 - **access the memory in larger blocks!**
 
@@ -143,7 +148,7 @@ __host__ and __device__ can be combined
 
 ![Selection_006](/home/atti/Documents/pv197_cuda/images/Selection_006.png)
 
-	#### 	One big transation (but used only 50 % of data)
+#### 	One big transation (but used only 50 % of data)
 
 ![Selection_007](/home/atti/Documents/pv197_cuda/images/Selection_007.png)
 
@@ -151,7 +156,7 @@ __host__ and __device__ can be combined
 
 ![Selection_008](/home/atti/Documents/pv197_cuda/images/Selection_008.png)
 
-	#### 	Offset comparison 
+#### 	Offset comparison 
 
 ![Selection_010](/home/atti/Documents/pv197_cuda/images/Selection_010.png)
 
@@ -168,18 +173,18 @@ __host__ and __device__ can be combined
 
 ##### Overfetching
 
-- loading data into cache and using only a fraction of it
-- you can turn caching off
+- loading data into cache and using **only a fraction of it**
+- you can turn caching off in cases when caching hinders performance
 
 ##### Read-only data cache
 
 - shared with textures
 - for newer GPUs
-- `__testrict__` and `ldg()`
+- `__restrict__` and `ldg()`
 
 
 
-### Partition Camping
+### Partition Camping (only older GPUs)
 
 - the use of just a certain subset of memory regions
 - only old NVIDIA GPUs, but also the modern AMDs
@@ -194,6 +199,8 @@ __host__ and __device__ can be combined
 ## Shared Memory Access Optimization
 
 - shared memory organized into **memory banks**, which can be accessed in parallel
+  - shared memory banks are organized such that successive 32-bit words are assigned to successive banks and the bandwidth is 32 bits per bank per  clock cycle.
+  - For devices of compute capability 2.0, the warp size is 32 threads and  the number of banks is also 32. A shared memory request for a warp is  not split as with devices of compute capability 1.x, meaning that bank  conflicts can occur between threads in the first half of a warp and  threads in the second half of the same warp.
 
 ![Selection_012](/home/atti/Documents/pv197_cuda/images/Selection_012.png)
 
@@ -266,3 +273,15 @@ __host__ and __device__ can be combined
   - transfer large blocks at once
   - computations and memory transfers should be overlapped
 - 
+
+
+
+# TODO
+
+ - [ ] shared memory bank conflicts
+ - [ ] 
+
+
+
+
+
