@@ -19,24 +19,29 @@ __device__ bool check_neighbours_border(const int* const in, const int n, const 
 	return infected_neighbours > threshold;
 }
 
-__device__ bool check_neighbours_inner(const int* const in_shared, const int idx_local, const int threshold)
+__device__ bool check_neighbours_inner(const int* const in, const int n, const int x, const int y, const int threshold)
 {	
-	int infected_neighbours = 0;//in_shared[idx_local];
+	int infected_neighbours = 0;
 
-	#pragma unroll
-	for (int row_offset = -1; row_offset <= 1; row_offset += 1) {
-		infected_neighbours += in_shared[row_offset * blockDim.x + idx_local - 1];
-		infected_neighbours += in_shared[row_offset * blockDim.x + idx_local];
-		infected_neighbours += in_shared[row_offset * blockDim.x + idx_local + 1];
-	}
+	int row = (y - 1) * n;
+	infected_neighbours += in[row + (x - 1)] > 0 ? 1 : 0;
+	infected_neighbours += in[row + x] > 0 ? 1 : 0;
+	infected_neighbours += in[row + (x + 1)] > 0 ? 1 : 0;
+
+	row += n;
+	infected_neighbours += in[row + (x - 1)] > 0 ? 1 : 0;
+	infected_neighbours += in[row + (x + 1)] > 0 ? 1 : 0;
+
+	row += n;
+	infected_neighbours += in[row + (x - 1)] > 0 ? 1 : 0;
+	infected_neighbours += in[row + x] > 0 ? 1 : 0;
+	infected_neighbours += in[row + (x + 1)] > 0 ? 1 : 0;
 
 	return infected_neighbours > threshold;
 }
 
 __global__ void make_iteration(const int* const in, int* const out, const int* const contacts, int* const infections, const int iter, const int n)
 {
-	__shared__ int is_infected_shared[BLOCK_SIZE_X * BLOCK_SIZE_Y];
-
 	const unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
 	const unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -44,21 +49,15 @@ __global__ void make_iteration(const int* const in, int* const out, const int* c
 		return;
 
 	const int idx_global = y * n + x;
-	const int idx_local = threadIdx.y * blockDim.x + threadIdx.x;	
-
 	const int house_in = in[idx_global];
-	is_infected_shared[idx_local] = house_in > 0 ? 1 : 0;
-	
 	int house_out = 0;
-
-	__syncthreads();
 
 	if (house_in == 0) { // healthy
 		bool infected;	
-		if (threadIdx.x == 0 || threadIdx.y == 0 || threadIdx.x == blockDim.x-1 || threadIdx.y == blockDim.y-1)
+		if (x == 0 || y == 0 || x == n-1 || y == n-1)
 			infected = check_neighbours_border(in, n, x, y, contacts[idx_global]);
 		else
-			infected = check_neighbours_inner(is_infected_shared, idx_local, contacts[idx_global]);
+			infected = check_neighbours_inner(in, n, x, y, contacts[idx_global]);
 
 		if (infected) {
 			house_out = 10;
