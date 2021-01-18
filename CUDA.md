@@ -106,6 +106,17 @@ __host__ and __device__ can be combined
 
 - `__restrict__`
 
+  - shared HW with textures
+    - high bandwidth but also higher latency
+  - `__restrict__` and `ldg()`
+
+### Page locked memory
+
+- to tell the OS **not to page the mallocated block in RAM** to allow copying of the whole block at once to the GPU memory
+- <img src="/home/atti/Documents/pv197_cuda/images/Selection_026.png" alt="Selection_026" style="zoom:50%;" />
+
+  
+
 ### System RAM
 
 - use`cudaMallocHost()` instead of `malloc()`
@@ -175,12 +186,6 @@ __host__ and __device__ can be combined
 
 - loading data into cache and using **only a fraction of it**
 - you can turn caching off in cases when caching hinders performance
-
-##### Read-only data cache
-
-- shared with textures
-- for newer GPUs
-- `__restrict__` and `ldg()`
 
 
 
@@ -284,6 +289,8 @@ __host__ and __device__ can be combined
 - beware of synchronization blocks
 - use many threads to hide memory latencies
   - while some warp is waiting for memory, the scheduler can run other warp
+- don't run too many threads due to power consumption
+  - rather assign more work to one thread
 
 
 
