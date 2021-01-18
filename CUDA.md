@@ -249,6 +249,7 @@ __host__ and __device__ can be combined
 
 - GPU is good for single-precision floating point operations (since it's designed for graphics)
   - newer GPUs support double precision, or half-precision
+- GPU has 2 SFU cores for special operations
 - **GPU single-precision implementation of functions**
   - `__sin()` - faster but less precise
 - addition and multiplication very fast
@@ -263,6 +264,7 @@ __host__ and __device__ can be combined
 - investigate assembly
   - `cuobjdump`
   - `decuda`
+- double can be 32-times slower than float!
 
 
 
@@ -272,16 +274,16 @@ __host__ and __device__ can be combined
 - minimize CPU->GPU memory transfers
   - transfer large blocks at once
   - computations and memory transfers should be overlapped
-- 
-
-
-
-# TODO
-
- - [ ] shared memory bank conflicts
- - [ ] 
-
-
+- try not to use two shared memory loads in one calculation
+  - if possible, get one operand from the shared memory and one from registers (by coallesed loading data from global memory)
+- avoid shared memory bank conflicts
+- avoid global memory partition camping
+- use int8 instead of int if possible
+- use float instead of double if possible
+- when optimizing, go from coarser to finer optimizations
+- beware of synchronization blocks
+- use many threads to hide memory latencies
+  - while some warp is waiting for memory, the scheduler can run other warp
 
 
 
