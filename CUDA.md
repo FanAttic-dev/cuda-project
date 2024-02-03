@@ -20,7 +20,7 @@ __host__ // run and call on host only
 __host__ and __device__ can be combined
 ```
 
-![Selection_001](/home/atti/Documents/pv197_cuda/images/Selection_001.png)
+![Selection_001](images/Selection_001.png)
 
 
 
@@ -38,7 +38,7 @@ __host__ and __device__ can be combined
 - SIMT reconvergence
   - at the end of divergent code, a point of reconvergence is set by the compiler
   - **can create deadlocks**
-  - <img src="/home/atti/Documents/pv197_cuda/images/Selection_003.png" alt="Selection_003" style="zoom:50%;" />
+  - <img src="images/Selection_003.png" alt="Selection_003" style="zoom:50%;" />
 - **all threads run** on the same multiprocessor
   - multiple blocks **can run** on one multiprocessor
 - no **out of order execution** (as opposed to CPU)
@@ -49,7 +49,7 @@ __host__ and __device__ can be combined
 
 ## Memory
 
-![Selection_002](/home/atti/Documents/pv197_cuda/images/Selection_002.png)
+![Selection_002](images/Selection_002.png)
 
 ### Registers
 
@@ -113,7 +113,7 @@ __host__ and __device__ can be combined
 ### Page locked memory
 
 - to tell the OS **not to page the mallocated block in RAM** to allow copying of the whole block at once to the GPU memory
-- <img src="/home/atti/Documents/pv197_cuda/images/Selection_026.png" alt="Selection_026" style="zoom:50%;" />
+- <img src="images/Selection_026.png" alt="Selection_026" style="zoom:50%;" />
 
   
 
@@ -157,19 +157,19 @@ __host__ and __device__ can be combined
 
   #### One small transation 
 
-![Selection_006](/home/atti/Documents/pv197_cuda/images/Selection_006.png)
+![Selection_006](images/Selection_006.png)
 
 #### 	One big transation (but used only 50 % of data)
 
-![Selection_007](/home/atti/Documents/pv197_cuda/images/Selection_007.png)
+![Selection_007](images/Selection_007.png)
 
 #### 	Two small transations (but used only 50 % of data)
 
-![Selection_008](/home/atti/Documents/pv197_cuda/images/Selection_008.png)
+![Selection_008](images/Selection_008.png)
 
 #### 	Offset comparison 
 
-![Selection_010](/home/atti/Documents/pv197_cuda/images/Selection_010.png)
+![Selection_010](images/Selection_010.png)
 
 
 
@@ -178,7 +178,7 @@ __host__ and __device__ can be combined
 - `x = A[id * factor]` 
 - the higher the factor, the lower the bandwidth
 
-![Selection_009](/home/atti/Documents/pv197_cuda/images/Selection_009.png)
+![Selection_009](images/Selection_009.png)
 
 
 
@@ -195,7 +195,7 @@ __host__ and __device__ can be combined
 - only old NVIDIA GPUs, but also the modern AMDs
 - the memory is split into 256B regions
 
-![Selection_011](/home/atti/Documents/pv197_cuda/images/Selection_011.png)
+![Selection_011](images/Selection_011.png)
 
 - if the thread blocks (TB) access the same partition, the memory transfer is serialized
 
@@ -207,11 +207,11 @@ __host__ and __device__ can be combined
   - shared memory banks are organized such that successive 32-bit words are assigned to successive banks and the bandwidth is 32 bits per bank per  clock cycle.
   - For devices of compute capability 2.0, the warp size is 32 threads and  the number of banks is also 32. A shared memory request for a warp is  not split as with devices of compute capability 1.x, meaning that bank  conflicts can occur between threads in the first half of a warp and  threads in the second half of the same warp.
 
-![Selection_012](/home/atti/Documents/pv197_cuda/images/Selection_012.png)
+![Selection_012](images/Selection_012.png)
 
 #### 	No bank conflict
 
-<img src="/home/atti/Documents/pv197_cuda/images/Selection_013.png" alt="Selection_013" style="zoom: 67%;" />
+<img src="images/Selection_013.png" alt="Selection_013" style="zoom: 67%;" />
 
 ### Bank Conflict
 
@@ -219,15 +219,15 @@ __host__ and __device__ can be combined
 
   #### n-way bank conflict 
 
-<img src="/home/atti/Documents/pv197_cuda/images/Selection_014.png" alt="Selection_014" style="zoom:67%;" />
+<img src="images/Selection_014.png" alt="Selection_014" style="zoom:67%;" />
 
 - no need for alignment
 
-![Selection_015](/home/atti/Documents/pv197_cuda/images/Selection_015.png)
+![Selection_015](images/Selection_015.png)
 
 - with interleaved access, **the constant should be odd**
 
-![Selection_016](/home/atti/Documents/pv197_cuda/images/Selection_016.png)
+![Selection_016](images/Selection_016.png)
 
 
 
@@ -239,7 +239,7 @@ __host__ and __device__ can be combined
   - use **when using shared memory**
 - beware of unused compute capability - **use more blocks** to hide latency
 
-<img src="/home/atti/Documents/pv197_cuda/images/Selection_004.png" alt="Selection_004" style="zoom: 33%;" />
+<img src="images/Selection_004.png" alt="Selection_004" style="zoom: 33%;" />
 
 ### Among blocks
 

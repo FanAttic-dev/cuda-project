@@ -18,16 +18,16 @@
 - kernels do not use pointers
 - no C++ stuff
 - OCL uses Queues to support multiple HW
-- ![Selection_020](/home/atti/Documents/pv197_cuda/images/Selection_020.png)
+- ![Selection_020](images/Selection_020.png)
   - NDRange
     - how many threads do I have alltogether
     - the number of work-groups can be derived from NDRange
     - this way, we can ommit the definition of the **work-group**
-    - ![Selection_021](/home/atti/Documents/pv197_cuda/images/Selection_021.png)
+    - ![Selection_021](images/Selection_021.png)
   - Shared memory (CUDA), Local memory (OpenCL)
   - registers (CUDA), private memory (OpenCL)
 - Basic vecadd kernel
-  - ![Selection_022](/home/atti/Documents/pv197_cuda/images/Selection_022.png)
+  - ![Selection_022](images/Selection_022.png)
   - Host code - waay more complicated than CUDA
     - define a platform
       - device
@@ -59,7 +59,7 @@
     - explicit vectorization (float4)
     - implicit vectorization
       - we can help the compiler by unrolling loops and grouping similar operations
-      - ![Selection_023](/home/atti/Documents/pv197_cuda/images/Selection_023.png)
+      - ![Selection_023](images/Selection_023.png)
   - **Issues with VLIW**
     - we need much more registers for using VLIW - **keep the number of used registers low**
     - branching now wastes much more resources
@@ -95,12 +95,12 @@
 - beware of NUMA
 - no local memory in HW - the CPU would just allocate another array in the global memory
   - but good to access the global memory as shared memory **to keep the data in caches**
-  - ![Selection_024](/home/atti/Documents/pv197_cuda/images/Selection_024.png)
+  - ![Selection_024](images/Selection_024.png)
 
 ## Intel MIC
 
 - Many Integrated Core Architecture
-- ![Selection_025](/home/atti/Documents/pv197_cuda/images/Selection_025.png)
+- ![Selection_025](images/Selection_025.png)
 
 - core
   - extremely simple
