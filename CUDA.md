@@ -102,6 +102,12 @@ __host__ and __device__ can be combined
 - limited size (64 kB)
 - use **when all threads access the same constant**
 
+### Texture memory
+
+- read-only, cached, 2D locality
+- high latency
+- possible interpolation implemented in HW
+
 ### Data Cache
 
 - `__restrict__`
@@ -109,13 +115,6 @@ __host__ and __device__ can be combined
   - shared HW with textures
     - high bandwidth but also higher latency
   - `__restrict__` and `ldg()`
-
-### Page locked memory
-
-- to tell the OS **not to page the mallocated block in RAM** to allow copying of the whole block at once to the GPU memory
-- <img src="images/Selection_026.png" alt="Selection_026" style="zoom:50%;" />
-
-  
 
 ### System RAM
 
@@ -126,6 +125,10 @@ __host__ and __device__ can be combined
   - `cudaHostAllocWriteCombined` flag turns off caching for CPU allocated memory
   - `cudaHostAllocMapped` flag sets host memory mapping in the device address space
 
+### Page locked memory
+
+- to tell the OS **not to page the mallocated block in RAM** to allow copying of the whole block at once to the GPU memory
+- <img src="images/Selection_026.png" alt="Selection_026" style="zoom:50%;" />
 
 
 ## Global Memory Access Optimization
@@ -155,7 +158,7 @@ __host__ and __device__ can be combined
 
 - `x = A[id + offset]`
 
-  #### One small transation 
+  #### One small transaction 
 
 ![Selection_006](images/Selection_006.png)
 
@@ -229,6 +232,7 @@ __host__ and __device__ can be combined
 
 ![Selection_016](images/Selection_016.png)
 
+- broadcast available (OK if threads in warp access the same data)
 
 
 ## Synchronization
@@ -291,6 +295,27 @@ __host__ and __device__ can be combined
   - while some warp is waiting for memory, the scheduler can run other warp
 - don't run too many threads due to power consumption
   - rather assign more work to one thread
+- test if API calls are successful
+- clear ouput arrays for debugging purposes
+- beware of out-of-bounds accesses
+  - no exception thrown
 
+### Problem Choice
+- accelerate code only if it is necessary (based on profiling)
+- large enough
+- sufficient number of flops to memory transfers (consider slow PCI-E)
+- power consumption higher on GPUs
+- parallelizable problem
+- difficult to parallelize if:
+  - threads in warp access random addresses in memory
+  - thread in warp diverge
 
+### Optimization
+- start with coarser optimizations and only after that proceed to finer ones
 
+1. PCI-E transfers
+2. global memory access (bandwidth, latency)
+3. access to other types of memory
+4. divergence
+5. parallelism configuration (block size, amount of serial work per thread)
+6. instruction optimization
